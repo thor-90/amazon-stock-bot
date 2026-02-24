@@ -215,13 +215,13 @@ class StockNotificationBot:
         if in_stock:
             # IN STOCK alert with bold and emphasis on key elements
             message = (
-                f"🟢 **STOCK AVAILABLE!** 🟢\n\n"
+                f"🟢 **STOCK AVAILABLE** 🟢\n\n"
                 f"**{product_name}**\n"
                 f"━━━━━━━━━━━━━━\n"
-                f"**💎 VALUE: ** **₹{denomination}**\n"
+                f"**💎** **₹{denomination}**\n"
                 f"━━━━━━━━━━━━━━\n\n"
                 f"💰 Price: {price}\n"
-                f"🛒 [**⚡ BUY NOW ⚡**]({url})\n"
+                f"🛒 [⚡ BUY NOW ⚡]({url})\n"
                 f"📅 Date: {date_str}\n"
                 f"⏱️ Time: {time_str}\n"
                 f"━━━━━━━━━━━━━━\n"
@@ -230,7 +230,7 @@ class StockNotificationBot:
         else:
             # OUT OF STOCK alert with bold denomination
             message = (
-                f"🔴 **SOLD OUT / OUT OF STOCK** 🔴\n\n"
+                f"🔴 **OUT OF STOCK** 🔴\n\n"
                 f"**{product_name}**\n"
                 f"━━━━━━━━━━━━━━\n"
                 f"**💎 VALUE: ** **₹{denomination}**\n"
