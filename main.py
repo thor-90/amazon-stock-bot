@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ===== CONFIGURATION =====
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8649783060:AAG2EvOnFL1C8nPLjqLfi1k-OQF_NyHTkwY")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1612876925")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003891147099")
 
 # Products to monitor with their denominations
 PRODUCTS = {
