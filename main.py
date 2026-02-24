@@ -26,8 +26,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1612876925")
 # Products to monitor with their denominations
 PRODUCTS = {
     "https://amzn.in/d/04fOMJlT": {
-        "name": "PlayStation Gift Card Link 1",
-        "denominations": ["1000", "2000", "3000", "4000", "5000"]
+        "name": "Steam Wallet Code",
+        "denominations": ["150", "250", "500", "1000", "2500"]
     },
     "https://amzn.in/d/081q2grT": {
         "name": "PlayStation Gift Card Link 2",
