@@ -206,28 +206,33 @@ class StockNotificationBot:
                 logger.info(f"Cooldown active for {product_name} - Rs.{denomination} ({time_since_last:.0f}s since last alert). Skipping.")
                 return  # Don't send the message
         
+        # Get current date and time
+        now = datetime.now()
+        date_str = now.strftime('%d/%m/%Y')
+        time_str = now.strftime('%H:%M:%S')
+        
         # Create appropriate message based on stock status
         if in_stock:
-            # IN STOCK alert
+            # IN STOCK alert with clickable BUY button
             message = (
                 f"🟢 **STOCK AVAILABLE!** 🟢\n\n"
                 f"**{product_name}**\n"
                 f"**Denomination: Rs.{denomination}**\n\n"
                 f"💰 Price: {price}\n"
-                f"🛒 Buy now: {url}\n"
-                f"⏱️ Time: {datetime.now().strftime('%H:%M:%S')}\n\n"
-                f"#PlayStation #GiftCard #Rs{denomination} #InStock"
+                f"🛒 [**BUY NOW**]({url})\n"
+                f"📅 Date: {date_str}\n"
+                f"⏱️ Time: {time_str}\n"
             )
             logger.info(f"📦 IN STOCK: {product_name} - Rs.{denomination}")
         else:
             # OUT OF STOCK alert
             message = (
-                f"🔴 **SOLD OUT / OUT OF STOCK** 🔴\n\n"
+                f"🔴 **OUT OF STOCK** 🔴\n\n"
                 f"**{product_name}**\n"
                 f"**Denomination: Rs.{denomination}**\n\n"
-                f"⏱️ Time: {datetime.now().strftime('%H:%M:%S')}\n\n"
-                f"Will alert again when restocked.\n\n"
-                f"#PlayStation #GiftCard #Rs{denomination} #OutOfStock"
+                f"📅 Date: {date_str}\n"
+                f"⏱️ Time: {time_str}\n\n"
+                f"Will alert again when restocked.\n"
             )
             logger.info(f"❌ OUT OF STOCK: {product_name} - Rs.{denomination}")
         
@@ -236,7 +241,7 @@ class StockNotificationBot:
                 chat_id=self.chat_id,
                 text=message,
                 parse_mode='Markdown',
-                disable_web_page_preview=False
+                disable_web_page_preview=False  # This shows the link preview
             )
             # Update the last alert time AFTER successfully sending
             self.last_alert_time[alert_key] = current_time
@@ -321,6 +326,11 @@ async def main():
         me = await bot.bot.get_me()
         logger.info(f"Bot connected successfully! @{me.username}")
         
+        # Get current date for startup message
+        now = datetime.now()
+        date_str = now.strftime('%d/%m/%Y')
+        time_str = now.strftime('%H:%M:%S')
+        
         # Send startup message
         startup_message = "🚀 **Amazon Stock Monitor Started!** 🚀\n\n"
         startup_message += "**Monitoring PlayStation Gift Cards:**\n"
@@ -334,7 +344,8 @@ async def main():
         startup_message += f"📊 **You'll be notified:**\n"
         startup_message += f"   ✅ When items come IN STOCK\n"
         startup_message += f"   ❌ When items go OUT OF STOCK\n\n"
-        startup_message += f"Group ID: {TELEGRAM_CHAT_ID}\n"
+        startup_message += f"📅 Date: {date_str}\n"
+        startup_message += f"⏱️ Time: {time_str}\n\n"
         startup_message += f"Bot is live and monitoring 24/7!"
         
         await bot.bot.send_message(
