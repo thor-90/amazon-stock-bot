@@ -43,8 +43,8 @@ OUT_OF_STOCK_INDICATORS = [
     "temporarily out of stock"
 ]
 
-# Check interval in seconds (e.g., 300 = 5 minutes)
-CHECK_INTERVAL = 300
+# Check interval in seconds (e.g., 120 = 2 minutes)
+CHECK_INTERVAL = 120
 
 # SSL context for secure connections
 ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -194,7 +194,7 @@ class StockNotificationBot:
     async def send_notification(self, product_name: str, url: str, denomination: str, price: str):
         """Send stock notification to Telegram"""
         message = (
-            f"🔔 **STOCK ALERT!** 🔔\n\n"
+            f"🔔 **غاردە هات!** 🔔\n\n"
             f"**{product_name}**\n"
             f"**Denomination: Rs.{denomination}**\n\n"
             f"💰 Price: {price}\n"
