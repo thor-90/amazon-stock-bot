@@ -11,6 +11,7 @@ from fake_useragent import UserAgent
 import ssl
 import certifi
 import os
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ===== CONFIGURATION =====
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8649783060:AAG2EvOnFL1C8nPLjqLfi1k-OQF_NyHTkwY")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003891147099")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003891147099")  # Your group ID
 
 # Products to monitor with their denominations
 PRODUCTS = {
@@ -43,8 +44,11 @@ OUT_OF_STOCK_INDICATORS = [
     "temporarily out of stock"
 ]
 
-# Check interval in seconds (e.g., 120 = 2 minutes)
+# Check interval in seconds (120 = 2 minutes)
 CHECK_INTERVAL = 120
+
+# Cooldown period in seconds to prevent duplicate alerts (30 minutes = 1800 seconds)
+ALERT_COOLDOWN = 1800
 
 # SSL context for secure connections
 ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -82,9 +86,6 @@ class AmazonStockChecker:
         Returns: (in_stock, status_message, price)
         """
         try:
-            # For Amazon, we need to check if this denomination option is available
-            # This might require different approaches based on how the page displays denominations
-            
             session = await self.get_session()
             
             # Add random delay to avoid being blocked
@@ -101,9 +102,7 @@ class AmazonStockChecker:
                 soup = BeautifulSoup(html, 'html.parser')
                 
                 # Look for denomination-specific elements
-                # This is where you'd need to customize based on how the page shows denominations
-                
-                # Method 1: Check for denomination in dropdown/select
+                # Check if this denomination option exists and is selectable
                 denomination_selectors = [
                     f'select option[value*="{denomination}"]',
                     f'option:contains("Rs. {denomination}")',
@@ -112,7 +111,7 @@ class AmazonStockChecker:
                     f'[data-value*="{denomination}"]',
                 ]
                 
-                # Check if this denomination option exists and is selectable
+                # Check if this denomination option exists
                 denomination_exists = False
                 for selector in denomination_selectors:
                     element = soup.select_one(selector)
@@ -135,9 +134,7 @@ class AmazonStockChecker:
                 has_buy_button = buy_box is not None and buy_box.get('aria-disabled') != 'true'
                 
                 # Determine if this specific denomination is in stock
-                # This logic may need adjustment based on how the page actually works
                 if denomination_exists or denomination_in_text:
-                    # If denomination is mentioned and there's a buy button and not out of stock
                     in_stock = has_buy_button and not is_out_of_stock
                 else:
                     in_stock = False
@@ -148,7 +145,7 @@ class AmazonStockChecker:
                 # Get status message
                 status_msg = self._extract_status_message(soup)
                 
-                logger.info(f"{product_info['name']} - Rs.{denomination}: {'IN STOCK' if in_stock else 'Out of Stock'} - {status_msg}")
+                logger.info(f"{product_info['name']} - Rs.{denomination}: {'IN STOCK' if in_stock else 'OUT OF STOCK'} - {status_msg}")
                 
                 return in_stock, status_msg, price
                 
@@ -190,17 +187,49 @@ class StockNotificationBot:
         self.bot = Bot(token=token)
         self.chat_id = chat_id
         self.checker = AmazonStockChecker()
+        self.last_alert_time: Dict[str, float] = {}  # Track when last alert was sent
+        self.last_status_change: Dict[str, bool] = {}  # Track last known status
 
-    async def send_notification(self, product_name: str, url: str, denomination: str, price: str):
-        """Send stock notification to Telegram"""
-        message = (
-            f"🔔 **غاردە هات!** 🔔\n\n"
-            f"**{product_name}**\n"
-            f"**Denomination: Rs.{denomination}**\n\n"
-            f"💰 Price: {price}\n"
-            f"🛒 Buy now: {url}\n\n"
-            f"#PlayStation #GiftCard #Rs{denomination}"
-        )
+    async def send_stock_alert(self, product_name: str, url: str, denomination: str, price: str, in_stock: bool):
+        """
+        Send stock notification to Telegram (both in-stock and out-of-stock alerts)
+        With cooldown to prevent duplicates
+        """
+        # Create a unique key for this specific product and denomination
+        alert_key = f"{url}_{denomination}"
+        current_time = time.time()
+        
+        # Check if we've sent an alert for this item recently
+        if alert_key in self.last_alert_time:
+            time_since_last = current_time - self.last_alert_time[alert_key]
+            if time_since_last < ALERT_COOLDOWN:
+                logger.info(f"Cooldown active for {product_name} - Rs.{denomination} ({time_since_last:.0f}s since last alert). Skipping.")
+                return  # Don't send the message
+        
+        # Create appropriate message based on stock status
+        if in_stock:
+            # IN STOCK alert
+            message = (
+                f"🟢 **STOCK AVAILABLE!** 🟢\n\n"
+                f"**{product_name}**\n"
+                f"**Denomination: Rs.{denomination}**\n\n"
+                f"💰 Price: {price}\n"
+                f"🛒 Buy now: {url}\n"
+                f"⏱️ Time: {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"#PlayStation #GiftCard #Rs{denomination} #InStock"
+            )
+            logger.info(f"📦 IN STOCK: {product_name} - Rs.{denomination}")
+        else:
+            # OUT OF STOCK alert
+            message = (
+                f"🔴 **SOLD OUT / OUT OF STOCK** 🔴\n\n"
+                f"**{product_name}**\n"
+                f"**Denomination: Rs.{denomination}**\n\n"
+                f"⏱️ Time: {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"Will alert again when restocked.\n\n"
+                f"#PlayStation #GiftCard #Rs{denomination} #OutOfStock"
+            )
+            logger.info(f"❌ OUT OF STOCK: {product_name} - Rs.{denomination}")
         
         try:
             await self.bot.send_message(
@@ -209,35 +238,17 @@ class StockNotificationBot:
                 parse_mode='Markdown',
                 disable_web_page_preview=False
             )
-            logger.info(f"Notification sent: {product_name} - Rs.{denomination}")
+            # Update the last alert time AFTER successfully sending
+            self.last_alert_time[alert_key] = current_time
+            logger.info(f"Alert sent: {product_name} - Rs.{denomination} - {'In Stock' if in_stock else 'Out of Stock'}")
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {e}")
-
-    async def send_summary(self, in_stock_items: List[Tuple[str, str, str, str]]):
-        """Send a summary of all in-stock items"""
-        if not in_stock_items:
-            return
-        
-        message = "📊 **Current Stock Summary** 📊\n\n"
-        
-        for product_name, url, denomination, price in in_stock_items:
-            message += f"✅ **{product_name}**\n"
-            message += f"   • Rs.{denomination} - {price}\n"
-            message += f"   • [Buy Now]({url})\n\n"
-        
-        try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
-            )
-        except TelegramError as e:
-            logger.error(f"Failed to send summary: {e}")
 
     async def monitor_products(self):
         """Main monitoring loop"""
         logger.info("Starting stock monitor for all denominations...")
+        logger.info(f"Check interval: {CHECK_INTERVAL} seconds ({CHECK_INTERVAL/60:.1f} minutes)")
+        logger.info(f"Alert cooldown: {ALERT_COOLDOWN} seconds ({ALERT_COOLDOWN/60:.1f} minutes)")
         
         # Initialize tracking for all denominations
         for url, product_info in PRODUCTS.items():
@@ -245,10 +256,13 @@ class StockNotificationBot:
                 self.checker.last_status[url] = {}
                 for denom in product_info["denominations"]:
                     self.checker.last_status[url][denom] = (False, "")
+                    # Initialize last_status_change
+                    status_key = f"{url}_{denom}"
+                    self.last_status_change[status_key] = False
         
         while True:
             try:
-                in_stock_items = []
+                status_changes = []
                 
                 for url, product_info in PRODUCTS.items():
                     for denomination in product_info["denominations"]:
@@ -258,26 +272,35 @@ class StockNotificationBot:
                             url, denomination, product_info
                         )
                         
+                        # Create unique key for this product+denomination
+                        status_key = f"{url}_{denomination}"
+                        
                         # Get previous status for this denomination
                         prev_in_stock, _ = self.checker.last_status[url].get(denomination, (False, ""))
                         
-                        # Check if status has changed to IN STOCK
-                        if in_stock and not prev_in_stock:
-                            logger.info(f"{product_info['name']} - Rs.{denomination} is now IN STOCK!")
-                            await self.send_notification(product_info['name'], url, denomination, price)
-                            in_stock_items.append((product_info['name'], url, denomination, price))
+                        # Check if status has CHANGED (either in-stock or out-of-stock)
+                        if in_stock != prev_in_stock:
+                            # Status changed! Send alert
+                            logger.info(f"🔥 STATUS CHANGE: {product_info['name']} - Rs.{denomination}: {prev_in_stock} -> {in_stock}")
+                            await self.send_stock_alert(product_info['name'], url, denomination, price, in_stock)
+                            status_changes.append((product_info['name'], url, denomination, price, in_stock))
+                            
+                            # Update last_status_change
+                            self.last_status_change[status_key] = in_stock
                         
-                        # Update last status
+                        # Update last status regardless
                         self.checker.last_status[url][denomination] = (in_stock, status_msg)
                         
                         # Brief pause between checks
                         await asyncio.sleep(3)
                 
-                # Send summary if any items are in stock
-                if in_stock_items:
-                    await self.send_summary(in_stock_items)
+                # Log summary of any status changes
+                if status_changes:
+                    logger.info(f"✅ Status changes detected: {len(status_changes)} items changed state")
+                else:
+                    logger.info("ℹ️ No status changes detected in this cycle")
                 
-                logger.info(f"Sleeping for {CHECK_INTERVAL} seconds...")
+                logger.info(f"💤 Sleeping for {CHECK_INTERVAL} seconds ({CHECK_INTERVAL/60:.1f} minutes)...")
                 await asyncio.sleep(CHECK_INTERVAL)
                 
             except Exception as e:
@@ -300,15 +323,19 @@ async def main():
         
         # Send startup message
         startup_message = "🚀 **Amazon Stock Monitor Started!** 🚀\n\n"
-        startup_message += "Monitoring **5 denominations** across **2 links**:\n\n"
+        startup_message += "**Monitoring PlayStation Gift Cards:**\n"
         
         for url, product_info in PRODUCTS.items():
-            startup_message += f"📌 **{product_info['name']}**\n"
+            startup_message += f"\n📌 **{product_info['name']}**\n"
             startup_message += f"   Denominations: Rs.{', Rs.'.join(product_info['denominations'])}\n"
-            startup_message += f"   Link: {url}\n\n"
         
-        startup_message += f"Checking every {CHECK_INTERVAL//60} minutes.\n"
-        startup_message += "You'll be notified immediately when any denomination comes in stock!"
+        startup_message += f"\n⏱️ **Check interval:** Every {CHECK_INTERVAL//60} minutes\n"
+        startup_message += f"🔄 **Alert cooldown:** {ALERT_COOLDOWN//60} minutes (prevents spam)\n"
+        startup_message += f"📊 **You'll be notified:**\n"
+        startup_message += f"   ✅ When items come IN STOCK\n"
+        startup_message += f"   ❌ When items go OUT OF STOCK\n\n"
+        startup_message += f"Group ID: {TELEGRAM_CHAT_ID}\n"
+        startup_message += f"Bot is live and monitoring 24/7!"
         
         await bot.bot.send_message(
             chat_id=bot.chat_id,
