@@ -1,0 +1,6 @@
+﻿aiohttp==3.9.1
+beautifulsoup4==4.12.2
+python-telegram-bot==20.6
+fake-useragent==1.4.0
+lxml==4.9.3
+certifi==2024.2.2
