@@ -213,26 +213,32 @@ class StockNotificationBot:
         
         # Create appropriate message based on stock status
         if in_stock:
-            # IN STOCK alert with clickable BUY button and simplified denomination
+            # IN STOCK alert with bold and emphasis on key elements
             message = (
                 f"🟢 **STOCK AVAILABLE!** 🟢\n\n"
                 f"**{product_name}**\n"
-                f"**₹{denomination}**\n\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"**💎 VALUE: ** **₹{denomination}**\n"
+                f"━━━━━━━━━━━━━━\n\n"
                 f"💰 Price: {price}\n"
-                f"🛒 [**BUY NOW**]({url})\n"
+                f"🛒 [**⚡ BUY NOW ⚡**]({url})\n"
                 f"📅 Date: {date_str}\n"
                 f"⏱️ Time: {time_str}\n"
+                f"━━━━━━━━━━━━━━\n"
             )
             logger.info(f"📦 IN STOCK: {product_name} - ₹{denomination}")
         else:
-            # OUT OF STOCK alert with simplified denomination
+            # OUT OF STOCK alert with bold denomination
             message = (
-                f"🔴 **OUT OF STOCK** 🔴\n\n"
+                f"🔴 **SOLD OUT / OUT OF STOCK** 🔴\n\n"
                 f"**{product_name}**\n"
-                f"**₹{denomination}**\n\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"**💎 VALUE: ** **₹{denomination}**\n"
+                f"━━━━━━━━━━━━━━\n\n"
                 f"📅 Date: {date_str}\n"
                 f"⏱️ Time: {time_str}\n\n"
                 f"Will alert again when restocked.\n"
+                f"━━━━━━━━━━━━━━\n"
             )
             logger.info(f"❌ OUT OF STOCK: {product_name} - ₹{denomination}")
         
@@ -342,8 +348,10 @@ async def main():
         startup_message += f"📊 **You'll be notified:**\n"
         startup_message += f"   ✅ When items come IN STOCK\n"
         startup_message += f"   ❌ When items go OUT OF STOCK\n\n"
+        startup_message += f"━━━━━━━━━━━━━━\n"
         startup_message += f"📅 Date: {date_str}\n"
-        startup_message += f"⏱️ Time: {time_str}\n\n"
+        startup_message += f"⏱️ Time: {time_str}\n"
+        startup_message += f"━━━━━━━━━━━━━━\n\n"
         startup_message += f"Bot is live and monitoring 24/7! 🇮🇳"
         
         await bot.bot.send_message(
