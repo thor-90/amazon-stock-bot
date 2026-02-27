@@ -11,7 +11,9 @@ from fake_useragent import UserAgent
 import ssl
 import certifi
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
+from collections import defaultdict
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +25,13 @@ logger = logging.getLogger(__name__)
 # ===== CONFIGURATION =====
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8649783060:AAG2EvOnFL1C8nPLjqLfi1k-OQF_NyHTkwY")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003891147099")  # Your group ID
+
+# India timezone offset (IST is UTC+5:30)
+IST_OFFSET = timedelta(hours=5, minutes=30)
+
+def ist_now():
+    """Get current time in IST"""
+    return datetime.utcnow() + IST_OFFSET
 
 # Products to monitor with their denominations
 PRODUCTS = {
@@ -52,6 +61,137 @@ ALERT_COOLDOWN = 1800
 
 # SSL context for secure connections
 ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+# ===== SIMPLE HISTORY TRACKER =====
+class StockHistory:
+    def __init__(self, history_file='stock_history.json'):
+        self.history_file = history_file
+        self.events = []
+        self.daily_stats = defaultdict(lambda: {'in_stock': 0, 'out_stock': 0, 'events': []})
+        self.load_history()
+    
+    def load_history(self):
+        """Load history from file"""
+        try:
+            if os.path.exists(self.history_file):
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    self.events = json.load(f)
+                logger.info(f"📊 Loaded {len(self.events)} historical events")
+        except Exception as e:
+            logger.warning(f"Could not load history: {e}")
+            self.events = []
+    
+    def save_history(self):
+        """Save history to file"""
+        try:
+            # Keep only last 1000 events to prevent file from growing too large
+            events_to_save = self.events[-1000:]
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(events_to_save, f, indent=2)
+            logger.info(f"📊 Saved {len(events_to_save)} events to history")
+        except Exception as e:
+            logger.error(f"Failed to save history: {e}")
+    
+    def record_event(self, product_name, denomination, status, price):
+        """Record a stock event"""
+        now = ist_now()
+        event = {
+            'timestamp': now.isoformat(),
+            'date': now.strftime('%Y-%m-%d'),
+            'time': now.strftime('%H:%M:%S'),
+            'product': product_name,
+            'denomination': denomination,
+            'status': status,  # 'IN_STOCK' or 'OUT_STOCK'
+            'price': price
+        }
+        self.events.append(event)
+        
+        # Update daily stats
+        date_key = now.strftime('%Y-%m-%d')
+        if status == 'IN_STOCK':
+            self.daily_stats[date_key]['in_stock'] += 1
+        else:
+            self.daily_stats[date_key]['out_stock'] += 1
+        self.daily_stats[date_key]['events'].append(event)
+        
+        # Save after each event
+        self.save_history()
+        logger.info(f"📝 Recorded: {product_name} - ₹{denomination} - {status}")
+    
+    def get_daily_summary(self, date=None):
+        """Get summary for a specific date"""
+        if date is None:
+            date = ist_now().strftime('%Y-%m-%d')
+        
+        if date not in self.daily_stats:
+            return f"📅 No events recorded for {date}"
+        
+        stats = self.daily_stats[date]
+        events = stats['events']
+        
+        lines = []
+        lines.append(f"📊 **DAILY SUMMARY - {date}** 📊")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"🟢 IN STOCK events: {stats['in_stock']}")
+        lines.append(f"🔴 OUT STOCK events: {stats['out_stock']}")
+        lines.append(f"📊 Total events: {len(events)}")
+        lines.append("")
+        
+        if events:
+            lines.append("**📋 Events:**")
+            # Group by denomination
+            by_denom = defaultdict(list)
+            for e in events:
+                by_denom[e['denomination']].append(e)
+            
+            for denom in sorted(by_denom.keys(), key=lambda x: int(x)):
+                denom_events = by_denom[denom]
+                lines.append(f"\n  **₹{denom}:**")
+                for e in denom_events:
+                    emoji = "🟢" if e['status'] == 'IN_STOCK' else "🔴"
+                    lines.append(f"    {emoji} {e['time']} - {e['status']}")
+        
+        lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+        return "\n".join(lines)
+    
+    def get_full_history(self, days=7):
+        """Get history for last X days"""
+        cutoff = ist_now() - timedelta(days=days)
+        recent_events = [e for e in self.events 
+                        if datetime.fromisoformat(e['timestamp']) > cutoff]
+        
+        if not recent_events:
+            return f"📊 No events in last {days} days"
+        
+        lines = []
+        lines.append(f"📊 **HISTORY - Last {days} Days** 📊")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"Total events: {len(recent_events)}")
+        lines.append("")
+        
+        # Group by date
+        by_date = defaultdict(list)
+        for e in recent_events:
+            by_date[e['date']].append(e)
+        
+        for date in sorted(by_date.keys(), reverse=True):
+            date_events = by_date[date]
+            in_count = sum(1 for e in date_events if e['status'] == 'IN_STOCK')
+            out_count = sum(1 for e in date_events if e['status'] == 'OUT_STOCK')
+            
+            lines.append(f"\n**📅 {date}:**")
+            lines.append(f"  🟢 IN: {in_count} | 🔴 OUT: {out_count}")
+            
+            # Show first few events of the day
+            for e in date_events[:3]:  # Show max 3 per day to avoid spam
+                emoji = "🟢" if e['status'] == 'IN_STOCK' else "🔴"
+                lines.append(f"    {emoji} {e['time']} - ₹{e['denomination']} - {e['status']}")
+            
+            if len(date_events) > 3:
+                lines.append(f"    ... and {len(date_events) - 3} more")
+        
+        lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+        return "\n".join(lines)
 
 # ===== STOCK CHECKER =====
 class AmazonStockChecker:
@@ -102,7 +242,6 @@ class AmazonStockChecker:
                 soup = BeautifulSoup(html, 'html.parser')
                 
                 # Look for denomination-specific elements
-                # Check if this denomination option exists and is selectable
                 denomination_selectors = [
                     f'select option[value*="{denomination}"]',
                     f'option:contains("Rs. {denomination}")',
@@ -187,8 +326,10 @@ class StockNotificationBot:
         self.bot = Bot(token=token)
         self.chat_id = chat_id
         self.checker = AmazonStockChecker()
+        self.history = StockHistory()
         self.last_alert_time: Dict[str, float] = {}  # Track when last alert was sent
         self.last_status_change: Dict[str, bool] = {}  # Track last known status
+        self.last_daily_report = None
 
     async def send_stock_alert(self, product_name: str, url: str, denomination: str, price: str, in_stock: bool):
         """
@@ -206,14 +347,18 @@ class StockNotificationBot:
                 logger.info(f"Cooldown active for {product_name} - ₹{denomination} ({time_since_last:.0f}s since last alert). Skipping.")
                 return  # Don't send the message
         
-        # Get current date and time
-        now = datetime.now()
+        # Get current date and time in IST
+        now = ist_now()
         date_str = now.strftime('%d/%m/%Y')
         time_str = now.strftime('%H:%M:%S')
         
+        # Record in history
+        status = 'IN_STOCK' if in_stock else 'OUT_STOCK'
+        self.history.record_event(product_name, denomination, status, price)
+        
         # Create appropriate message based on stock status
         if in_stock:
-            # IN STOCK alert with bold and emphasis on key elements
+            # IN STOCK alert
             message = (
                 f"🟢 **STOCK AVAILABLE!** 🟢\n\n"
                 f"**{product_name}**\n"
@@ -228,7 +373,7 @@ class StockNotificationBot:
             )
             logger.info(f"📦 IN STOCK: {product_name} - ₹{denomination}")
         else:
-            # OUT OF STOCK alert with bold denomination
+            # OUT OF STOCK alert
             message = (
                 f"🔴 **SOLD OUT / OUT OF STOCK** 🔴\n\n"
                 f"**{product_name}**\n"
@@ -247,7 +392,7 @@ class StockNotificationBot:
                 chat_id=self.chat_id,
                 text=message,
                 parse_mode='Markdown',
-                disable_web_page_preview=False  # This shows the link preview
+                disable_web_page_preview=False
             )
             # Update the last alert time AFTER successfully sending
             self.last_alert_time[alert_key] = current_time
@@ -255,11 +400,71 @@ class StockNotificationBot:
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {e}")
 
+    async def send_daily_report(self):
+        """Send daily summary report (called at 12AM and 12PM)"""
+        now = ist_now()
+        today = now.strftime('%Y-%m-%d')
+        
+        # Get today's summary
+        summary = self.history.get_daily_summary(today)
+        
+        # Add header based on time
+        if now.hour < 12:
+            header = "🌙 **MIDNIGHT SUMMARY** 🌙"
+        else:
+            header = "☀️ **NOON SUMMARY** ☀️"
+        
+        full_report = f"{header}\n\n{summary}"
+        
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=full_report,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+            logger.info(f"📊 Daily report sent for {today}")
+        except TelegramError as e:
+            logger.error(f"Failed to send daily report: {e}")
+
+    async def send_history_report(self, days=7):
+        """Send history report for last X days"""
+        report = self.history.get_full_history(days)
+        
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=report,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
+            )
+            logger.info(f"📊 History report sent (last {days} days)")
+        except TelegramError as e:
+            logger.error(f"Failed to send history report: {e}")
+
+    async def check_daily_report_time(self):
+        """Check if it's time to send daily report (12AM and 12PM IST)"""
+        now = ist_now()
+        current_time = now.strftime('%H:%M')
+        today = now.strftime('%Y-%m-%d')
+        
+        # Send at 12:00 AM and 12:00 PM (with 5-minute window)
+        if current_time in ['00:00', '00:01', '00:02', '00:03', '00:04', '00:05',
+                           '12:00', '12:01', '12:02', '12:03', '12:04', '12:05']:
+            # Check if we already sent today's report for this time
+            report_key = f"{today}_{now.hour}"
+            if self.last_daily_report != report_key:
+                await self.send_daily_report()
+                self.last_daily_report = report_key
+                await asyncio.sleep(60)  # Wait a minute to avoid duplicate
+
     async def monitor_products(self):
         """Main monitoring loop"""
         logger.info("Starting stock monitor for all denominations...")
         logger.info(f"Check interval: {CHECK_INTERVAL} seconds ({CHECK_INTERVAL/60:.1f} minutes)")
         logger.info(f"Alert cooldown: {ALERT_COOLDOWN} seconds ({ALERT_COOLDOWN/60:.1f} minutes)")
+        logger.info("📊 Daily reports at 12:00 AM and 12:00 PM IST")
+        logger.info("📊 History tracking enabled (saved to stock_history.json)")
         
         # Initialize tracking for all denominations
         for url, product_info in PRODUCTS.items():
@@ -270,6 +475,9 @@ class StockNotificationBot:
                     # Initialize last_status_change
                     status_key = f"{url}_{denom}"
                     self.last_status_change[status_key] = False
+        
+        # Send startup history (last 3 days)
+        await self.send_history_report(3)
         
         while True:
             try:
@@ -305,6 +513,9 @@ class StockNotificationBot:
                         # Brief pause between checks
                         await asyncio.sleep(3)
                 
+                # Check if it's time for daily report
+                await self.check_daily_report_time()
+                
                 # Log summary of any status changes
                 if status_changes:
                     logger.info(f"✅ Status changes detected: {len(status_changes)} items changed state")
@@ -333,9 +544,9 @@ async def main():
         logger.info(f"Bot connected successfully! @{me.username}")
         
         # Get current date for startup message
-        now = datetime.now()
+        now = ist_now()
         date_str = now.strftime('%d/%m/%Y')
-        time_str = now.strftime('%H:%M:%S')
+        time_str = now.strftime('%I:%M %p')
         
         # Send startup message
         startup_message = "🚀 **Amazon Stock Monitor Started!** 🚀\n\n"
@@ -344,13 +555,12 @@ async def main():
         startup_message += "• ₹1000\n• ₹2000\n• ₹3000\n• ₹4000\n• ₹5000\n\n"
         startup_message += f"📌 **2 Links being monitored**\n\n"
         startup_message += f"⏱️ **Check interval:** Every {CHECK_INTERVAL//60} minutes\n"
-        startup_message += f"🔄 **Alert cooldown:** {ALERT_COOLDOWN//60} minutes (prevents spam)\n"
-        startup_message += f"📊 **You'll be notified:**\n"
-        startup_message += f"   ✅ When items come IN STOCK\n"
-        startup_message += f"   ❌ When items go OUT OF STOCK\n\n"
+        startup_message += f"🔄 **Alert cooldown:** {ALERT_COOLDOWN//60} minutes\n"
+        startup_message += f"📊 **Daily Reports:** 12:00 AM & 12:00 PM IST\n"
+        startup_message += f"📊 **History Tracking:** Saved to file\n\n"
         startup_message += f"━━━━━━━━━━━━━━━━━━━━\n"
         startup_message += f"📅 Date: {date_str}\n"
-        startup_message += f"⏱️ Time: {time_str}\n"
+        startup_message += f"⏱️ Time: {time_str} IST\n"
         startup_message += f"━━━━━━━━━━━━━━━━━━━━\n\n"
         startup_message += f"Bot is live and monitoring 24/7! 🇮🇳"
         
