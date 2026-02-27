@@ -11,7 +11,7 @@ from fake_useragent import UserAgent
 import ssl
 import certifi
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from collections import defaultdict
 
@@ -26,12 +26,11 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8649783060:AAG2EvOnFL1C8nPLjqLfi1k-OQF_NyHTkwY")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003891147099")  # Your group ID
 
-# India timezone offset (IST is UTC+5:30)
-IST_OFFSET = timedelta(hours=5, minutes=30)
-
-def ist_now():
-    """Get current time in IST"""
-    return datetime.utcnow() + IST_OFFSET
+# Iraq timezone (UTC+3) - No daylight saving
+def iraq_now():
+    """Get current time in Iraq (UTC+3)"""
+    utc_now = datetime.now(timezone.utc)
+    return utc_now + timedelta(hours=3)
 
 # Products to monitor with their denominations
 PRODUCTS = {
@@ -94,7 +93,7 @@ class StockHistory:
     
     def record_event(self, product_name, denomination, status, price):
         """Record a stock event"""
-        now = ist_now()
+        now = iraq_now()
         event = {
             'timestamp': now.isoformat(),
             'date': now.strftime('%Y-%m-%d'),
@@ -121,7 +120,7 @@ class StockHistory:
     def get_daily_summary(self, date=None):
         """Get summary for a specific date"""
         if date is None:
-            date = ist_now().strftime('%Y-%m-%d')
+            date = iraq_now().strftime('%Y-%m-%d')
         
         if date not in self.daily_stats:
             return f"📅 No events recorded for {date}"
@@ -156,9 +155,9 @@ class StockHistory:
     
     def get_full_history(self, days=7):
         """Get history for last X days"""
-        cutoff = ist_now() - timedelta(days=days)
+        cutoff = iraq_now() - timedelta(days=days)
         recent_events = [e for e in self.events 
-                        if datetime.fromisoformat(e['timestamp']) > cutoff]
+                        if datetime.fromisoformat(e['timestamp']).replace(tzinfo=timezone.utc) + timedelta(hours=3) > cutoff]
         
         if not recent_events:
             return f"📊 No events in last {days} days"
@@ -347,8 +346,8 @@ class StockNotificationBot:
                 logger.info(f"Cooldown active for {product_name} - ₹{denomination} ({time_since_last:.0f}s since last alert). Skipping.")
                 return  # Don't send the message
         
-        # Get current date and time in IST
-        now = ist_now()
+        # Get current date and time in Iraq
+        now = iraq_now()
         date_str = now.strftime('%d/%m/%Y')
         time_str = now.strftime('%H:%M:%S')
         
@@ -368,7 +367,7 @@ class StockNotificationBot:
                 f"💰 Price: {price}\n"
                 f"🛒 [**⚡ BUY NOW ⚡**]({url})\n"
                 f"📅 Date: {date_str}\n"
-                f"⏱️ Time: {time_str}\n"
+                f"⏱️ Time: {time_str} Iraq\n"
                 f"━━━━━━━━━━━━━━\n"
             )
             logger.info(f"📦 IN STOCK: {product_name} - ₹{denomination}")
@@ -381,7 +380,7 @@ class StockNotificationBot:
                 f"**💎 VALUE: ** **₹{denomination}**\n"
                 f"━━━━━━━━━━━━━━\n\n"
                 f"📅 Date: {date_str}\n"
-                f"⏱️ Time: {time_str}\n\n"
+                f"⏱️ Time: {time_str} Iraq\n\n"
                 f"Will alert again when restocked.\n"
                 f"━━━━━━━━━━━━━━\n"
             )
@@ -401,8 +400,8 @@ class StockNotificationBot:
             logger.error(f"Failed to send Telegram message: {e}")
 
     async def send_daily_report(self):
-        """Send daily summary report (called at 12AM and 12PM)"""
-        now = ist_now()
+        """Send daily summary report (called at 12AM and 12PM Iraq time)"""
+        now = iraq_now()
         today = now.strftime('%Y-%m-%d')
         
         # Get today's summary
@@ -443,8 +442,8 @@ class StockNotificationBot:
             logger.error(f"Failed to send history report: {e}")
 
     async def check_daily_report_time(self):
-        """Check if it's time to send daily report (12AM and 12PM IST)"""
-        now = ist_now()
+        """Check if it's time to send daily report (12AM and 12PM Iraq time)"""
+        now = iraq_now()
         current_time = now.strftime('%H:%M')
         today = now.strftime('%Y-%m-%d')
         
@@ -463,7 +462,7 @@ class StockNotificationBot:
         logger.info("Starting stock monitor for all denominations...")
         logger.info(f"Check interval: {CHECK_INTERVAL} seconds ({CHECK_INTERVAL/60:.1f} minutes)")
         logger.info(f"Alert cooldown: {ALERT_COOLDOWN} seconds ({ALERT_COOLDOWN/60:.1f} minutes)")
-        logger.info("📊 Daily reports at 12:00 AM and 12:00 PM IST")
+        logger.info("📊 Daily reports at 12:00 AM and 12:00 PM Iraq Time")
         logger.info("📊 History tracking enabled (saved to stock_history.json)")
         
         # Initialize tracking for all denominations
@@ -544,7 +543,7 @@ async def main():
         logger.info(f"Bot connected successfully! @{me.username}")
         
         # Get current date for startup message
-        now = ist_now()
+        now = iraq_now()
         date_str = now.strftime('%d/%m/%Y')
         time_str = now.strftime('%I:%M %p')
         
@@ -556,13 +555,13 @@ async def main():
         startup_message += f"📌 **2 Links being monitored**\n\n"
         startup_message += f"⏱️ **Check interval:** Every {CHECK_INTERVAL//60} minutes\n"
         startup_message += f"🔄 **Alert cooldown:** {ALERT_COOLDOWN//60} minutes\n"
-        startup_message += f"📊 **Daily Reports:** 12:00 AM & 12:00 PM IST\n"
+        startup_message += f"📊 **Daily Reports:** 12:00 AM & 12:00 PM Iraq Time\n"
         startup_message += f"📊 **History Tracking:** Saved to file\n\n"
         startup_message += f"━━━━━━━━━━━━━━━━━━━━\n"
         startup_message += f"📅 Date: {date_str}\n"
-        startup_message += f"⏱️ Time: {time_str} IST\n"
+        startup_message += f"⏱️ Time: {time_str} Iraq\n"
         startup_message += f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        startup_message += f"Bot is live and monitoring 24/7! 🇮🇳"
+        startup_message += f"Bot is live and monitoring 24/7! 🇮🇶"
         
         await bot.bot.send_message(
             chat_id=bot.chat_id,
