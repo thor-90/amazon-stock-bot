@@ -24,7 +24,7 @@ async def send_12hour_report():
     
     if not os.path.exists(history_file):
         message = (
-            f"📊 12-HOUR HISTORY REPORT 📊\n"
+            f"📊 12-HOUR HISTORY REPORT\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"⏱️ Time: {now.strftime('%d/%m/%Y %I:%M %p')} Iraq Time\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -74,7 +74,7 @@ async def send_12hour_report():
     
     # Build message
     lines = []
-    lines.append("📊 12-HOUR HISTORY REPORT 📊")
+    lines.append("📊 12-HOUR HISTORY REPORT")
     lines.append("━━━━━━━━━━━━━━━━━━━━")
     lines.append(f"⏱️ Period: {(now - timedelta(hours=12)).strftime('%H:%M')} → {now.strftime('%H:%M')} Iraq Time")
     lines.append(f"📅 Date: {now.strftime('%d/%m/%Y')}")
@@ -95,11 +95,10 @@ async def send_12hour_report():
         lines.append("📋 DETAILS BY DENOMINATION")
         
         # Group by denomination
-        by_denom = {}
+        from collections import defaultdict
+        by_denom = defaultdict(list)
         for e in recent_events:
             denom = e.get('denomination', 'Unknown')
-            if denom not in by_denom:
-                by_denom[denom] = []
             by_denom[denom].append(e)
         
         for denom in sorted(by_denom.keys(), key=lambda x: int(x) if x.isdigit() else 0):

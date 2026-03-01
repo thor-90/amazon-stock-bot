@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Stock History Checker - Run this anytime to see what the host has recorded
+Stock History Checker - Run this anytime to see recorded stock events
 """
 
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from collections import defaultdict
 
 HISTORY_FILE = 'stock_history.json'
 
@@ -14,21 +13,6 @@ def iraq_now():
     """Get current time in Iraq (UTC+3)"""
     utc_now = datetime.now(timezone.utc)
     return utc_now + timedelta(hours=3)
-
-def format_duration(seconds):
-    """Format seconds into readable duration"""
-    if not seconds or seconds == 0:
-        return "N/A"
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-    
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    elif minutes > 0:
-        return f"{minutes}m {secs}s"
-    else:
-        return f"{secs}s"
 
 def check_history():
     """Check and display stock history"""
@@ -74,6 +58,7 @@ def check_history():
         print("💰 STATISTICS BY DENOMINATION")
         print("-"*40)
         
+        from collections import defaultdict
         by_denom = defaultdict(lambda: {'total': 0, 'in': 0, 'out': 0})
         for e in events:
             denom = e.get('denomination', 'Unknown')
