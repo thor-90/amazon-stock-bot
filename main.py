@@ -2,7 +2,7 @@ import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import os
 from datetime import datetime, timedelta, timezone
@@ -16,45 +16,49 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
+# It is better to use os.environ.get("TOKEN") for security on hosting
 TOKEN = "8649783060:AAG2EvOnFL1C8nPLjqLfi1k-OQF_NyHTkwY"
 CHAT_ID = "-1003891147099"
+
 DENOMINATIONS = ["1,000", "2,000", "3,000", "4,000", "5,000"]
 URLS = [
     "https://amzn.in/d/0atB5gdL",
-    # Add your second link here
+    # Add your second link here in quotes
 ]
 
-# This dictionary stores the current state of every card size
-# Example: {("url1", "1,000"): "OUT_STOCK"}
+# Stores the status of every card to detect changes
+# Key: (url, denomination) -> Value: "IN_STOCK" or "OUT_STOCK"
 stock_states = {}
 
 def iraq_now():
+    """Get current time in Iraq (UTC+3)"""
     return datetime.now(timezone.utc) + timedelta(hours=3)
 
 # --- Telegram Command: /status ---
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Checks the current memory and reports the last known status."""
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a manual report of all tracked items."""
     if not stock_states:
-        await update.message.reply_text("🔄 Still gathering data... Please wait for the first scan.")
+        await update.message.reply_text("🔄 Bot is still scanning. Please wait a moment...")
         return
 
-    text = "📊 **Current Stock Status**\n"
-    text += f"⏰ Last Update: {iraq_now().strftime('%H:%M:%S')} Iraq\n"
-    text += "━━━━━━━━━━━━━━━━━━\n"
+    report = "📊 **Current Stock Status**\n"
+    report += f"⏰ Time: {iraq_now().strftime('%H:%M:%S')} Iraq\n"
+    report += "━━━━━━━━━━━━━━━━━━\n"
     
     for url in URLS:
-        product_label = "Link 1" if "0atB5gdL" in url else "Link 2"
-        text += f"📍 **{product_label}**\n"
+        # Simple label to distinguish links
+        label = "Link 1" if "0atB5gdL" in url else "Link 2"
+        report += f"📍 **{label}**\n"
         for denom in DENOMINATIONS:
-            status = stock_states.get((url, denom), "UNKNOWN")
-            emoji = "✅" if status == "IN_STOCK" else "❌"
-            text += f"{emoji} ₹{denom}: {status}\n"
-        text += "━━━━━━━━━━━━━━━━━━\n"
+            current = stock_states.get((url, denom), "OUT_STOCK")
+            emoji = "✅" if current == "IN_STOCK" else "❌"
+            report += f"{emoji} ₹{denom}: {current}\n"
+        report += "━━━━━━━━━━━━━━━━━━\n"
 
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(report, parse_mode="Markdown")
 
-# --- Core Logic: The Scraper ---
-async def monitor_stock(application: Application):
+# --- Core Scraper Logic ---
+async def run_scanner(application: Application):
     ua = UserAgent()
     bot = application.bot
 
@@ -68,72 +72,71 @@ async def monitor_stock(application: Application):
 
             for url in URLS:
                 try:
-                    async with session.get(url, headers=headers, timeout=20) as response:
+                    async with session.get(url, headers=headers, timeout=30) as response:
                         if response.status != 200:
-                            logger.warning(f"Amazon returned status {response.status}")
+                            logger.error(f"Amazon error {response.status} for {url}")
                             continue
                         
                         html = await response.text()
                         soup = BeautifulSoup(html, 'lxml')
                         page_text = soup.get_text()
 
-                        # Check if ANY buying button exists on the page
-                        buy_buttons = soup.find_all("input", {"id": ["add-to-cart-button", "buy-now-button"]})
-                        is_buyable = len(buy_buttons) > 0
+                        # Check if 'Add to Cart' or 'Buy Now' exists on the page
+                        has_buttons = any(soup.find_all("input", {"id": ["add-to-cart-button", "buy-now-button"]}))
 
                         for denom in DENOMINATIONS:
                             key = (url, denom)
                             
-                            # LOGIC: It is only IN_STOCK if the specific number (e.g. 1,000) 
-                            # is present AND the page has a buy button.
-                            is_this_denom_live = denom in page_text and is_buyable
-                            current_status = "IN_STOCK" if is_this_denom_live else "OUT_STOCK"
-
-                            # Get previous status (default to OUT if not seen before)
+                            # MUST find the denomination text AND the buy button
+                            is_available = (denom in page_text) and has_buttons
+                            current_status = "IN_STOCK" if is_available else "OUT_STOCK"
+                            
+                            # Get previous status, default to OUT_STOCK if new
                             previous_status = stock_states.get(key, "OUT_STOCK")
 
+                            # ALERT ONLY ON CHANGE
                             if current_status != previous_status:
-                                # Update memory
                                 stock_states[key] = current_status
                                 
-                                # Send Alert
+                                # Prepare Alert
                                 emoji = "✅" if current_status == "IN_STOCK" else "❌"
-                                alert_text = (
+                                alert = (
                                     f"🔔 **Stock Update!**\n\n"
                                     f"📦 Product: PlayStation India\n"
                                     f"💰 Denomination: ₹{denom}\n"
                                     f"📊 Status: {current_status} {emoji}\n"
-                                    f"⏰ Time: {iraq_now().strftime('%I:%M %p')} Iraq\n\n"
-                                    f"🔗 [Link to Amazon]({url})"
+                                    f"⏰ Time: {iraq_now().strftime('%I:%M %p')} Iraq\n"
+                                    f"🔗 [Amazon Link]({url})"
                                 )
-                                await bot.send_message(chat_id=CHAT_ID, text=alert_text, parse_mode="Markdown")
-                                logger.info(f"Alert sent for {denom}: {current_status}")
+                                
+                                await bot.send_message(chat_id=CHAT_ID, text=alert, parse_mode="Markdown")
+                                logger.info(f"Change detected for {denom}: {current_status}")
 
                 except Exception as e:
-                    logger.error(f"Error scraping {url}: {e}")
+                    logger.error(f"Scanning error: {e}")
 
-            # Interval: 2 minutes (120 seconds) to avoid being banned
+            # Wait 2 minutes between scans
             await asyncio.sleep(120)
 
-# --- Start the Bot ---
+# --- Entry Point ---
 async def main():
-    # Build the Application
+    # Initialize Bot Application
     application = Application.builder().token(TOKEN).build()
 
-    # Add /status command
-    application.add_handler(CommandHandler("status", status))
+    # Register the /status command
+    application.add_handler(CommandHandler("status", status_command))
 
-    # Start the background task for monitoring
-    asyncio.create_task(monitor_stock(application))
+    # Start the background scraper task
+    asyncio.create_task(run_scanner(application))
 
-    # Run the bot's command listener
+    # Start the command polling
     async with application:
         await application.initialize()
         await application.start()
-        logger.info("Bot is running and monitoring...")
+        logger.info("Bot is LIVE. Monitoring started...")
         await application.updater.start_polling()
         
-        # Keep the main loop alive
+        # Keep alive
         while True:
             await asyncio.sleep(1)
 
@@ -141,4 +144,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        pass
+        logger.info("Bot stopped manually.")
