@@ -23,8 +23,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ===== CONFIGURATION =====
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8649783060:AAG2EvOnFL1C8nPLjqLfi1k-OQF_NyHTkwY")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1003891147099")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-100381147099")
 
 # Iraq timezone (UTC+3)
 def iraq_now():
@@ -34,8 +34,28 @@ def iraq_now():
 # Products to monitor
 PRODUCTS = {
     "https://amzn.in/d/0atB5gdL": {
-        "name": "PlayStation INDIA Gift Card",
-        "denominations": ["1000", "2000", "3000", "4000", "5000"]
+        "name": "PlayStation INDIA Gift Card (Rs. 1000)",
+        "denominations": ["1000"]
+    },
+    "https://amzn.in/d/0b1GrUrY": {
+        "name": "PlayStation INDIA Gift Card (Rs. 1000)",
+        "denominations": ["1000"]
+    },
+    "https://amzn.in/d/08nMYfdC": {
+        "name": "PlayStation INDIA Gift Card (Rs. 2000)",
+        "denominations": ["2000"]
+    },
+    "https://amzn.in/d/0aYmnUft": {
+        "name": "PlayStation INDIA Gift Card (Rs. 3000)",
+        "denominations": ["3000"]
+    },
+    "https://amzn.in/d/0ey6aocc": {
+        "name": "PlayStation INDIA Gift Card (Rs. 4000)",
+        "denominations": ["4000"]
+    },
+    "https://amzn.in/d/066XRDhc": {
+        "name": "PlayStation INDIA Gift Card (Rs. 5000)",
+        "denominations": ["5000"]
     },
     "https://amzn.in/d/081q2grT": {
         "name": "PlayStation INDIA Gift Card",
@@ -214,7 +234,9 @@ class StockNotificationBot:
         alert_key = f"{url}_{denomination}"
         current_time = time.time()
         
-        if alert_key in self.last_alert_time:
+        # NEW LOGIC: Only block if the item is IN STOCK.
+        # We want OUT OF STOCK alerts to always send immediately.
+        if in_stock and alert_key in self.last_alert_time:
             time_since_last = current_time - self.last_alert_time[alert_key]
             if time_since_last < ALERT_COOLDOWN:
                 logger.info(f"Cooldown active for ₹{denomination}")
@@ -224,11 +246,11 @@ class StockNotificationBot:
         date_str = now.strftime('%d/%m/%Y')
         time_str = now.strftime('%H:%M:%S')
         
+        # Record the event in history
         status = 'IN_STOCK' if in_stock else 'OUT_STOCK'
         self.history.record_event(product_name, denomination, status, price)
         
         if in_stock:
-            # IN STOCK alert
             message = (
                 f"🟢 **STOCK AVAILABLE!** 🟢\n\n"
                 f"**{product_name}**\n\n"
@@ -238,9 +260,7 @@ class StockNotificationBot:
                 f"Date: {date_str}\n"
                 f"Time: {time_str} Iraq"
             )
-            logger.info(f"📦 IN STOCK: ₹{denomination}")
         else:
-            # OUT OF STOCK alert - FIXED VERSION
             message = (
                 f"🔴 **OUT OF STOCK** 🔴\n\n"
                 f"**{product_name}**\n\n"
@@ -249,16 +269,15 @@ class StockNotificationBot:
                 f"Time: {time_str} Iraq\n\n"
                 f"Will alert again when restocked."
             )
-            logger.info(f"❌ OUT OF STOCK: ₹{denomination}")
         
         try:
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
-                parse_mode='Markdown',
-                disable_web_page_preview=False
+                parse_mode='Markdown'
             )
-            self.last_alert_time[alert_key] = current_time
+            # We update the time so the 30-minute timer starts/restarts
+            self.last_alert_time[alert_key] = current_time 
         except TelegramError as e:
             logger.error(f"Failed to send: {e}")
 
